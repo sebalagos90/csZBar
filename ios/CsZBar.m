@@ -35,7 +35,7 @@
 
 #pragma mark - Plugin API
 
-- (void)scan: (CDVInvokedUrlCommand*)command; 
+- (void)scan: (CDVInvokedUrlCommand*)command;
 {
     if (self.scanInProgress) {
         [self.commandDelegate
@@ -47,6 +47,7 @@
         self.scanInProgress = YES;
         self.scanCallbackId = [command callbackId];
         self.scanReader = [AlmaZBarReaderViewController new];
+        [self.scanReader setShowsZBarControls:NO];
 
         self.scanReader.readerDelegate = self;
         self.scanReader.supportedOrientationsMask = ZBarOrientationMask(UIInterfaceOrientationPortrait);
@@ -70,33 +71,41 @@
         }else if ([flash isEqualToString:@"auto"]) {
             self.scanReader.cameraFlashMode = UIImagePickerControllerCameraFlashModeAuto;
         }
-
-        // Hack to hide the bottom bar's Info button... originally based on http://stackoverflow.com/a/16353530
-	NSInteger infoButtonIndex;
-        if ([[[UIDevice currentDevice] systemVersion] compare:@"10.0" options:NSNumericSearch] != NSOrderedAscending) {
-            infoButtonIndex = 1;
-        } else {
-            infoButtonIndex = 3;
-        }
-        UIView *infoButton = [[[[[self.scanReader.view.subviews objectAtIndex:2] subviews] objectAtIndex:0] subviews] objectAtIndex:infoButtonIndex];
-        [infoButton setHidden:YES];
-
-        //UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem]; [button setTitle:@"Press Me" forState:UIControlStateNormal]; [button sizeToFit]; [self.view addSubview:button];
+        
         CGRect screenRect = [[UIScreen mainScreen] bounds];
         CGFloat screenWidth = screenRect.size.width;
         CGFloat screenHeight = screenRect.size.height;
         
         BOOL drawSight = [params objectForKey:@"drawSight"] ? [[params objectForKey:@"drawSight"] boolValue] : true;
         UIToolbar *toolbarViewFlash = [[UIToolbar alloc] init];
-        
+        float topToolbarSize = self.viewController.view.safeAreaInsets.top + 44.0;
         //The bar length it depends on the orientation
-        toolbarViewFlash.frame = CGRectMake(0.0, 0, (screenWidth > screenHeight ?screenWidth:screenHeight), 44.0);
+        toolbarViewFlash.frame = CGRectMake(0.0, 0, (screenWidth > screenHeight ?screenWidth:screenHeight), topToolbarSize);
         toolbarViewFlash.barStyle = UIBarStyleBlackOpaque;
+        
+        float bottomPosition = screenHeight - self.viewController.view.safeAreaInsets.bottom - 44.0;
+        float bottomToolbarSize = self.viewController.view.safeAreaInsets.bottom + 44.0;
+        UIToolbar *bottomToolbarView = [[UIToolbar alloc] init];
+        bottomToolbarView.frame = CGRectMake(0.0, bottomPosition, (screenWidth > screenHeight ?screenWidth:screenHeight), bottomToolbarSize);
+        bottomToolbarView.barStyle = UIBarStyleBlackOpaque;
+        
         UIBarButtonItem *buttonFlash = [[UIBarButtonItem alloc] initWithTitle:@"Flash" style:UIBarButtonItemStyleDone target:self action:@selector(toggleflash)];
         
-        NSArray *buttons = [NSArray arrayWithObjects: buttonFlash, nil];
-        [toolbarViewFlash setItems:buttons animated:NO];
+        NSArray *topButtons = [NSArray arrayWithObjects: buttonFlash, nil];
+        [toolbarViewFlash setItems:topButtons animated:NO];
+        
+        UIButton *cancelButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        
+        [cancelButton addTarget:self action:@selector(cancel) forControlEvents:UIControlEventTouchUpInside];
+        [cancelButton setTitle:@"Cancelar" forState:UIControlStateNormal];
+        cancelButton.frame = CGRectMake(16, 8, 40.0, 40.0);
+        cancelButton.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightBold];
+        [cancelButton sizeToFit];
+        
+        [bottomToolbarView addSubview:cancelButton];
+        
         [self.scanReader.view addSubview:toolbarViewFlash];
+        [self.scanReader.view addSubview:bottomToolbarView];
 
         if (drawSight) {
             CGFloat dim = screenWidth < screenHeight ? screenWidth / 1.1 : screenHeight / 1.1;
@@ -108,11 +117,18 @@
 
             self.scanReader.cameraOverlayView = polygonView;
         }
-
+        [self.scanReader setModalPresentationStyle:UIModalPresentationFullScreen];
         [self.viewController presentViewController:self.scanReader animated:YES completion:nil];
     }
 }
-
+- (void)cancel {
+    [self.scanReader dismissViewControllerAnimated: YES completion: ^(void) {
+        self.scanInProgress = NO;
+        [self sendScanResult: [CDVPluginResult
+                                resultWithStatus: CDVCommandStatus_ERROR
+                                messageAsString: @"cancelled"]];
+    }];
+}
 - (void)toggleflash {
     AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
     
